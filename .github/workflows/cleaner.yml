@@ -1,0 +1,66 @@
+name: 清理全部ccache缓存
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "输入DELETE确认清理所有缓存"
+        required: true
+        default: ""
+
+jobs:
+  clean-caches:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    
+    steps:
+      - name: 验证确认输入
+        if: ${{ github.event.inputs.confirm != 'DELETE' }}
+        run: |
+          echo "::error::必须输入DELETE确认清理操作!"
+          exit 1
+      
+      - name: 获取并删除所有缓存
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            let totalDeleted = 0;
+            
+            // 获取所有缓存
+            const caches = await github.rest.actions.getActionsCacheList({
+              owner,
+              repo,
+              per_page: 100
+            });
+            
+            // 删除匹配的缓存
+            for (const cache of caches.data.actions_caches) {
+              if (cache.key.startsWith('ccache-')) {
+                console.log(`删除缓存: ${cache.key}`);
+                await github.rest.actions.deleteActionsCacheById({
+                  owner,
+                  repo,
+                  cache_id: cache.id
+                });
+                totalDeleted++;
+              }
+            }
+            
+            return `成功删除 ${totalDeleted} 个缓存`;
+
+      - name: 重置环境
+        run: |
+          rm -rf $HOME/.ccache/*
+          rm -rf $HOME/.ccache_6.1.57/*
+          rm -rf $HOME/.ccache_6.1.75/*
+          rm -rf $HOME/.ccache_6.1.118/*
+          sudo apt clean
+          sudo journalctl --vacuum-time=1s
+          sudo rm -rf /var/log/*
+          docker system prune -af || true
+          sudo rm -rf /tmp/*
+          echo "容器环境已重置！"
+          echo "清理后空间:"
+          df -h
